@@ -1,28 +1,27 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::stream;
 use reqwest::Client;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::StreamExt;
 use crate::url::build_urls;
+use crate::StreamExt;
 
 pub struct Worker {
-    results_tx: Sender<u32>,
     mounting: String,
     concurrency: usize,
 }
 
 impl Worker {
-    pub fn new(results_tx: Sender<u32>, mounting: String, concurrency: usize) -> Self {
+    pub fn new(mounting: String, concurrency: usize) -> Self {
         Worker {
-            results_tx,
             mounting,
             concurrency,
         }
     }
 
-    pub async fn start(&self, jobs_rx: Receiver<u32>) {
+    pub async fn start(&self, jobs_rx: Receiver<u32>, results_tx: &Arc<Sender<u32>>) {
         tokio_stream::wrappers::ReceiverStream::new(jobs_rx)
             .for_each_concurrent(self.concurrency, |id| async move {
                 let client = Client::builder()
@@ -34,17 +33,20 @@ impl Worker {
                     .for_each_concurrent(self.concurrency, |url| async {
                         let response = client.head(url).send().await;
                         if response.is_err() {
-                            self.results_tx.send(id).await.unwrap();
+                            results_tx.send(id).await.unwrap();
                             return;
                         }
                         let response = response.unwrap();
                         if !response.status().is_success() {
-                            self.results_tx.send(id).await.unwrap();
+                            results_tx.send(id).await.unwrap();
                             return;
                         }
                     })
                     .await;
             })
             .await;
+
+        println!("workers finished");
+        drop(results_tx);
     }
 }

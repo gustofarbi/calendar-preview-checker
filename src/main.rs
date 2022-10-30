@@ -1,8 +1,9 @@
-use std::collections::HashSet;
 use std::fs;
+use std::{collections::HashSet, sync::Arc};
 
 use clap::{Arg, ArgAction, Command};
 use futures::StreamExt;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc;
 
 mod publisher;
@@ -58,14 +59,32 @@ async fn main() {
 
     tokio::spawn(async move {
         let mut missing_ids = HashSet::<u32>::new();
-        while let Some(id) = results_rx.recv().await {
+
+        loop {
+            let id = match results_rx.try_recv() {
+                Ok(id) => id,
+                Err(e) => match e {
+                    TryRecvError::Empty => {
+                        continue;
+                    }
+                    TryRecvError::Disconnected => {
+                        println!("receiver finished");
+                        return;
+                    }
+                },
+            };
             if missing_ids.insert(id) {
-                println!("{}\tall: {}", id, missing_ids.len());
+                println!("{}\tall:{}", id, missing_ids.len());
             }
         }
     });
 
     publisher::start_publisher(jobs_tx, ids);
-    let worker = worker::Worker::new(results_tx, mounting_type.to_string(), concurrency);
-    worker.start(jobs_rx).await;
+
+    let worker = worker::Worker::new(mounting_type.to_string(), concurrency);
+    let results_tx = &Arc::from(results_tx);
+
+    worker.start(jobs_rx, results_tx).await;
+
+    drop(results_tx);
 }
