@@ -1,10 +1,12 @@
-use std::fs;
+use std::fs::File;
+use std::io;
+use std::io::BufRead;
 use std::{collections::HashSet, sync::Arc};
 
 use clap::{Arg, ArgAction, Command};
 use futures::StreamExt;
-use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 
 mod publisher;
 mod url;
@@ -47,11 +49,10 @@ async fn main() {
         .parse::<usize>()
         .expect("could not parse num-workers into usize");
 
-    let ids = fs::read_to_string(input_file)
-        .unwrap()
-        .split("\n")
-        .filter(|number| !number.is_empty())
-        .map(|number| number.parse::<u32>().unwrap())
+    let ids = io::BufReader::new(File::open(input_file).expect("file not found"))
+        .lines()
+        .filter_map(|number_maybe| number_maybe.ok())
+        .filter_map(|number_string| number_string.parse::<u32>().ok())
         .collect::<Vec<u32>>();
 
     let (jobs_tx, jobs_rx) = mpsc::channel(concurrency);
@@ -85,6 +86,4 @@ async fn main() {
     let results_tx = &Arc::from(results_tx);
 
     worker.start(jobs_rx, results_tx).await;
-
-    drop(results_tx);
 }

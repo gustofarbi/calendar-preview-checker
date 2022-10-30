@@ -47,6 +47,5 @@ impl Worker {
             .await;
 
         println!("workers finished");
-        drop(results_tx);
     }
 }
