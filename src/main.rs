@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use std::fs;
-use std::sync::Arc;
 
 use clap::{Arg, ArgAction, Command};
 use futures::StreamExt;
-use tokio::sync::{mpsc, Barrier};
+use tokio::sync::mpsc;
 
 mod publisher;
 mod url;
@@ -56,9 +55,7 @@ async fn main() {
 
     let (jobs_tx, jobs_rx) = mpsc::channel(concurrency);
     let (results_tx, mut results_rx) = mpsc::channel(concurrency);
-    let barrier = Arc::new(Barrier::new(1));
 
-    let b = Arc::clone(&barrier);
     tokio::spawn(async move {
         let mut missing_ids = HashSet::<u32>::new();
         while let Some(id) = results_rx.recv().await {
@@ -66,7 +63,6 @@ async fn main() {
                 println!("{}\tall: {}", id, missing_ids.len());
             }
         }
-        b.wait().await;
     });
 
     publisher::start_publisher(jobs_tx, ids);

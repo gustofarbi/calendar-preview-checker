@@ -4,8 +4,8 @@ use futures::stream;
 use reqwest::Client;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::url::build_urls;
 use crate::StreamExt;
+use crate::url::build_urls;
 
 pub struct Worker {
     results_tx: Sender<u32>,
