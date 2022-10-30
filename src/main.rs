@@ -1,93 +1,75 @@
-use std::{sync::Arc, time::Duration};
+use std::collections::HashSet;
+use std::fs;
+use std::sync::Arc;
 
-use futures::{stream, StreamExt};
-use reqwest::Client;
+use clap::{Arg, ArgAction, Command};
+use futures::StreamExt;
+use tokio::sync::{mpsc, Barrier};
 
-use tokio::sync::{
-    mpsc::{self, Sender},
-    watch, Barrier,
-};
-
-struct Worker {
-    results_tx: Sender<u32>,
-}
-
-impl Worker {
-    fn new(results_tx: Sender<u32>) -> Self {
-        Worker { results_tx }
-    }
-
-    pub async fn start<T: Send + 'static>(
-        &self,
-        jobs_rx: watch::Receiver<u32>,
-        barrier: Arc<Barrier>,
-    ) {
-        tokio_stream::wrappers::WatchStream::new(jobs_rx)
-            .for_each_concurrent(5, |id| async move {
-                let client = Client::builder()
-                    .timeout(Duration::from_secs(3))
-                    .build()
-                    .unwrap();
-
-                stream::iter(build_urls(id))
-                    .for_each_concurrent(5, |url| async {
-                        println!("checking url: {}", url);
-                        let response = client.head(url).send().await;
-                        if response.is_err() {
-                            self.results_tx.send(id).await.unwrap();
-                            return;
-                        }
-                        let response = response.unwrap();
-                        if !response.status().is_success() {
-                            self.results_tx.send(id).await.unwrap();
-                            return;
-                        }
-                    })
-                    .await;
-            })
-            .await;
-
-        barrier.wait().await;
-    }
-}
-
-static SIZES: [u32; 6] = [500, 1080, 1242, 1440, 2048, 2560];
-static LOCALES: [&str; 6] = ["de-DE", "fr-FR", "nl-NL", "de-AT", "es-ES", "it-IT"];
+mod publisher;
+mod url;
+mod worker;
 
 #[tokio::main]
 async fn main() {
-    let (jobs_tx, jobs_rx) = watch::channel(5);
-    let (results_tx, mut results_rx) = mpsc::channel(20);
+    let cli = Command::new("check")
+        .arg(
+            Arg::new("mounting-type")
+                .long("mounting-type")
+                .short('m')
+                .action(ArgAction::Set)
+                .required(true)
+                .help("mounting type of calendar"),
+        )
+        .arg(
+            Arg::new("input-file")
+                .long("input-file")
+                .short('i')
+                .action(ArgAction::Set)
+                .required(true)
+                .help("path to file with calendar ids to be checked"),
+        )
+        .arg(
+            Arg::new("num-workers")
+                .long("num-workers")
+                .short('n')
+                .action(ArgAction::Set)
+                .default_value("10")
+                .help("number of workers running in parallel, the number of parallel requests will be squared, DO NOT set this too high, it can flood your tcp/tls handshake pool"),
+        );
+
+    let matches = cli.get_matches();
+
+    let mounting_type = matches.get_one::<String>("mounting-type").unwrap();
+    let input_file = matches.get_one::<String>("input-file").unwrap();
+    let concurrency_str = matches.get_one::<String>("num-workers").unwrap();
+    let concurrency = concurrency_str
+        .parse::<usize>()
+        .expect("could not parse num-workers into usize");
+
+    let ids = fs::read_to_string(input_file)
+        .unwrap()
+        .split("\n")
+        .filter(|number| !number.is_empty())
+        .map(|number| number.parse::<u32>().unwrap())
+        .collect::<Vec<u32>>();
+
+    let (jobs_tx, jobs_rx) = mpsc::channel(concurrency);
+    let (results_tx, mut results_rx) = mpsc::channel(concurrency);
     let barrier = Arc::new(Barrier::new(1));
 
+    let b = Arc::clone(&barrier);
     tokio::spawn(async move {
+        let mut missing_ids = HashSet::<u32>::new();
         while let Some(id) = results_rx.recv().await {
-            println!("{}", id);
+            if missing_ids.insert(id) {
+                println!("{}\tall: {}", id, missing_ids.len());
+            }
         }
+        b.wait().await;
     });
 
-    let worker = Worker::new(results_tx);
-    worker.start::<u32>(jobs_rx, barrier).await;
-
-    for id in 1..10 {
-        jobs_tx.send(id).unwrap();
-    }
-}
-
-fn build_urls(id: u32) -> Vec<String> {
-    let mut urls = Vec::<String>::new();
-
-    for size in SIZES {
-        for locale in LOCALES {
-            let url = format!(
-                "https://mp-prod-de-preview-service.s3.eu-central-1.amazonaws.com/resources/calendar-designs/{}/{}/mt-spirale_cv-cover-foreground_ref_{}.webp",
-                id,
-                locale,
-                size,
-            );
-            urls.push(url);
-        }
-    }
-
-    urls
+    publisher::start_publisher(jobs_tx, ids);
+    let worker = worker::Worker::new(results_tx, mounting_type.to_string(), concurrency);
+    worker.start(jobs_rx).await;
 }
