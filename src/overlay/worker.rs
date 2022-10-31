@@ -1,40 +1,38 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use futures::stream;
 use reqwest::Client;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::preview::url::build_urls;
+use crate::overlay::url::build_urls;
 use crate::StreamExt;
 
 pub struct Worker {
-    mounting: String,
+    year: u32,
     refinement: bool,
     concurrency: usize,
 }
 
 impl Worker {
-    pub fn new(mounting: String, refinement: bool, concurrency: usize) -> Self {
+    pub fn new(year: u32, refinement: bool, concurrency: usize) -> Self {
         Worker {
-            mounting,
+            year,
             refinement,
             concurrency,
         }
     }
 
-    pub async fn start(&self, jobs_rx: Receiver<u32>, results_tx: &Arc<Sender<u32>>) {
+    pub async fn start(&self, jobs_rx: Receiver<(u32, String, String)>, results_tx: &Arc<Sender<u32>>) {
         tokio_stream::wrappers::ReceiverStream::new(jobs_rx)
-            .for_each_concurrent(self.concurrency, |id| async move {
+            .for_each_concurrent(self.concurrency, |(id, path, hash)| async move {
                 let client = Client::builder()
                     .timeout(Duration::from_secs(3))
                     .build()
                     .unwrap();
                 let break_loop = AtomicBool::new(false);
 
-
-                stream::iter(build_urls(id, &self.mounting, self.refinement))
+                stream::iter(build_urls(self.year, path, hash, self.refinement))
                     .for_each_concurrent(self.concurrency, |url| async {
                         if break_loop.load(Ordering::SeqCst) {
                             return;

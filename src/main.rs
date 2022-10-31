@@ -1,9 +1,9 @@
 use futures::StreamExt;
-use preview::Preview;
 
 mod cmd;
-mod preview;
 mod handler;
+mod overlay;
+mod preview;
 
 #[tokio::main]
 async fn main() {
