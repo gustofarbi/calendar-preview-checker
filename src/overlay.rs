@@ -3,6 +3,7 @@ use std::{collections::HashSet, fs::File, sync::Arc};
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use async_trait::async_trait;
+use indicatif::ProgressBar;
 use serde::Deserialize;
 
 use crate::handler::Handler;
@@ -10,6 +11,7 @@ use crate::handler::Handler;
 mod publisher;
 mod url;
 mod worker;
+mod progress_bar;
 
 #[derive(Deserialize)]
 pub struct Item {
@@ -48,6 +50,11 @@ impl Handler for Overlay {
 
         let (jobs_tx, jobs_rx) = mpsc::channel(concurrency);
         let (results_tx, mut results_rx) = mpsc::channel(concurrency);
+        let (progress_bar_tx, progress_bar_rx) = mpsc::channel(concurrency);
+
+        let progress_bar = ProgressBar::new(items.len() as u64);
+
+        progress_bar::start(progress_bar_rx, progress_bar);
 
         tokio::spawn(async move {
             let mut missing_ids = HashSet::<u32>::new();
@@ -61,21 +68,25 @@ impl Handler for Overlay {
                         }
                         TryRecvError::Disconnected => {
                             println!("receiver finished");
-                            return;
+                            break;
                         }
                     },
                 };
                 if missing_ids.insert(id) {
-                    println!("{}\tall:{}", id, missing_ids.len());
+//                    println!("{}\tall:{}", id, missing_ids.len());
                 }
             }
+            let mut missing_ids = Vec::from_iter(missing_ids);
+            missing_ids.sort();
+            println!("{:?}", missing_ids);
         });
 
         publisher::start_publisher(jobs_tx, items);
 
         let worker = worker::Worker::new(year, refinement, concurrency);
         let results_tx = &Arc::from(results_tx);
+        let progress_bar_tx = &Arc::from(progress_bar_tx);
 
-        worker.start(jobs_rx, results_tx).await;
+        worker.start(jobs_rx, results_tx, progress_bar_tx).await;
     }
 }

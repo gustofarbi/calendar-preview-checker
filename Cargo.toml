@@ -9,6 +9,7 @@ edition = "2021"
 async-trait = "0.1.58"
 clap = { version = "4.0.18", features = ["derive", "cargo"] }
 futures = "0.3.25"
+indicatif = "0.17.1"
 rayon = "1.5.3"
 reqwest = "0.11.12"
 serde = { version = "1.0.147", features = ["derive"] }

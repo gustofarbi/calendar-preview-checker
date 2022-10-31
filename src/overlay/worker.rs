@@ -23,7 +23,12 @@ impl Worker {
         }
     }
 
-    pub async fn start(&self, jobs_rx: Receiver<(u32, String, String)>, results_tx: &Arc<Sender<u32>>) {
+    pub async fn start(
+        &self,
+        jobs_rx: Receiver<(u32, String, String)>,
+        results_tx: &Arc<Sender<u32>>,
+        progress_bar_tx: &Arc<Sender<()>>,
+    ) {
         tokio_stream::wrappers::ReceiverStream::new(jobs_rx)
             .for_each_concurrent(self.concurrency, |(id, path, hash)| async move {
                 let client = Client::builder()
@@ -31,6 +36,7 @@ impl Worker {
                     .build()
                     .unwrap();
                 let break_loop = AtomicBool::new(false);
+                progress_bar_tx.send(()).await.unwrap();
 
                 stream::iter(build_urls(self.year, path, hash, self.refinement))
                     .for_each_concurrent(self.concurrency, |url| async {
