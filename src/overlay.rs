@@ -6,12 +6,11 @@ use async_trait::async_trait;
 use indicatif::ProgressBar;
 use serde::Deserialize;
 
-use crate::handler::Handler;
+use crate::{handler::Handler, progress_bar};
 
 mod publisher;
 mod url;
 mod worker;
-mod progress_bar;
 
 #[derive(Deserialize)]
 pub struct Item {
@@ -73,9 +72,10 @@ impl Handler for Overlay {
                     },
                 };
                 if missing_ids.insert(id) {
-//                    println!("{}\tall:{}", id, missing_ids.len());
+                    //                    println!("{}\tall:{}", id, missing_ids.len());
                 }
             }
+
             let mut missing_ids = Vec::from_iter(missing_ids);
             missing_ids.sort();
             println!("{:?}", missing_ids);

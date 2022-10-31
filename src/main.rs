@@ -4,6 +4,7 @@ mod cmd;
 mod handler;
 mod overlay;
 mod preview;
+mod progress_bar;
 
 #[tokio::main]
 async fn main() {

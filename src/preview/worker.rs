@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::stream;
@@ -24,7 +24,12 @@ impl Worker {
         }
     }
 
-    pub async fn start(&self, jobs_rx: Receiver<u32>, results_tx: &Arc<Sender<u32>>) {
+    pub async fn start(
+        &self,
+        jobs_rx: Receiver<u32>,
+        results_tx: &Arc<Sender<u32>>,
+        progress_bar_tx: &Arc<Sender<()>>,
+    ) {
         tokio_stream::wrappers::ReceiverStream::new(jobs_rx)
             .for_each_concurrent(self.concurrency, |id| async move {
                 let client = Client::builder()
@@ -32,7 +37,7 @@ impl Worker {
                     .build()
                     .unwrap();
                 let break_loop = AtomicBool::new(false);
-
+                progress_bar_tx.send(()).await.unwrap();
 
                 stream::iter(build_urls(id, &self.mounting, self.refinement))
                     .for_each_concurrent(self.concurrency, |url| async {
