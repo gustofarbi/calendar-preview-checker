@@ -38,6 +38,13 @@ async fn main() {
                 .action(ArgAction::Set)
                 .default_value("10")
                 .help("number of workers running in parallel, the number of parallel requests will be squared, DO NOT set this too high, it can flood your tcp/tls handshake pool"),
+        )
+        .arg(
+            Arg::new("refinement")
+                .long("refinement")
+                .short('r')
+                .action(ArgAction::SetTrue)
+                .help("requests image with _ref suffix")
         );
 
     let matches = cli.get_matches();
@@ -48,6 +55,7 @@ async fn main() {
     let concurrency = concurrency_str
         .parse::<usize>()
         .expect("could not parse num-workers into usize");
+    let refinement = matches.get_flag("refinement");
 
     let ids = io::BufReader::new(File::open(input_file).expect("file not found"))
         .lines()
@@ -82,7 +90,7 @@ async fn main() {
 
     publisher::start_publisher(jobs_tx, ids);
 
-    let worker = worker::Worker::new(mounting_type.to_string(), concurrency);
+    let worker = worker::Worker::new(mounting_type.to_string(), refinement, concurrency);
     let results_tx = &Arc::from(results_tx);
 
     worker.start(jobs_rx, results_tx).await;

@@ -10,13 +10,15 @@ use crate::StreamExt;
 
 pub struct Worker {
     mounting: String,
+    refinement: bool,
     concurrency: usize,
 }
 
 impl Worker {
-    pub fn new(mounting: String, concurrency: usize) -> Self {
+    pub fn new(mounting: String, refinement: bool, concurrency: usize) -> Self {
         Worker {
             mounting,
+            refinement,
             concurrency,
         }
     }
@@ -29,7 +31,7 @@ impl Worker {
                     .build()
                     .unwrap();
 
-                stream::iter(build_urls(id, &self.mounting))
+                stream::iter(build_urls(id, &self.mounting, self.refinement))
                     .for_each_concurrent(self.concurrency, |url| async {
                         let response = client.head(url).send().await;
                         if response.is_err() {
