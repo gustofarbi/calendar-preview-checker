@@ -1,12 +1,12 @@
-use std::{collections::HashSet, fs::File, sync::Arc};
+use std::{fs::File, sync::Arc};
 
-use tokio::sync::mpsc::{self, error::TryRecvError};
+use tokio::sync::mpsc;
 
 use async_trait::async_trait;
 use indicatif::ProgressBar;
 use serde::Deserialize;
 
-use crate::{handler::Handler, progress_bar};
+use crate::{handler::Handler, progress_bar, receiver};
 
 mod publisher;
 mod url;
@@ -56,32 +56,10 @@ impl Handler for Overlay {
         progress_bar::start(progress_bar_rx, progress_bar);
 
         tokio::spawn(async move {
-            let mut missing_ids = HashSet::<u32>::new();
-
-            loop {
-                let id = match results_rx.try_recv() {
-                    Ok(id) => id,
-                    Err(e) => match e {
-                        TryRecvError::Empty => {
-                            continue;
-                        }
-                        TryRecvError::Disconnected => {
-                            println!("receiver finished");
-                            break;
-                        }
-                    },
-                };
-                if missing_ids.insert(id) {
-                    //                    println!("{}\tall:{}", id, missing_ids.len());
-                }
-            }
-
-            let mut missing_ids = Vec::from_iter(missing_ids);
-            missing_ids.sort();
-            println!("{:?}", missing_ids);
+            receiver::start(&mut results_rx);
         });
 
-        publisher::start_publisher(jobs_tx, items);
+        publisher::start(jobs_tx, items);
 
         let worker = worker::Worker::new(year, refinement, concurrency);
         let results_tx = &Arc::from(results_tx);

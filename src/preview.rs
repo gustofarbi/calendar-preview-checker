@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
@@ -6,13 +5,12 @@ use std::sync::Arc;
 
 use clap::ArgMatches;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
 
 use async_trait::async_trait;
 use indicatif::ProgressBar;
 
 use crate::handler::Handler;
-use crate::progress_bar;
+use crate::{progress_bar, receiver};
 
 mod publisher;
 mod url;
@@ -52,32 +50,10 @@ impl Handler for Preview {
         progress_bar::start(progress_bar_rx, progress_bar);
 
         tokio::spawn(async move {
-            let mut missing_ids = HashSet::<u32>::new();
-
-            loop {
-                let id = match results_rx.try_recv() {
-                    Ok(id) => id,
-                    Err(e) => match e {
-                        TryRecvError::Empty => {
-                            continue;
-                        }
-                        TryRecvError::Disconnected => {
-                            println!("receiver finished");
-                            break;
-                        }
-                    },
-                };
-                if missing_ids.insert(id) {
-//                    println!("{}\tall:{}", id, missing_ids.len());
-                }
-            }
-
-            let mut missing_ids = Vec::from_iter(missing_ids);
-            missing_ids.sort();
-            println!("{:?}", missing_ids);
+            receiver::start(&mut results_rx);
         });
 
-        publisher::start_publisher(jobs_tx, ids);
+        publisher::start(jobs_tx, ids);
 
         let worker = worker::Worker::new(mounting_type.to_string(), refinement, concurrency);
         let results_tx = &Arc::from(results_tx);
