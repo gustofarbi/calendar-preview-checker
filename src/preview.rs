@@ -3,14 +3,12 @@ use std::io;
 use std::io::BufRead;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use clap::ArgMatches;
 use tokio::sync::mpsc;
 
-use async_trait::async_trait;
-use indicatif::ProgressBar;
-
-use crate::handler::Handler;
 use crate::{progress_bar, receiver};
+use crate::handler::Handler;
 
 mod publisher;
 mod url;
@@ -45,7 +43,7 @@ impl Handler for Preview {
         let (results_tx, mut results_rx) = mpsc::channel(concurrency);
         let (progress_bar_tx, progress_bar_rx) = mpsc::channel(concurrency);
 
-        let progress_bar = ProgressBar::new(ids.len() as u64);
+        let progress_bar = progress_bar::get(ids.len() as u64);
 
         progress_bar::start(progress_bar_rx, progress_bar);
 
@@ -55,10 +53,8 @@ impl Handler for Preview {
 
         publisher::start(jobs_tx, ids);
 
-        let worker = worker::Worker::new(mounting_type.to_string(), refinement, concurrency);
-        let results_tx = &Arc::from(results_tx);
-        let progress_bar_tx = &Arc::from(progress_bar_tx);
-
-        worker.start(jobs_rx, results_tx, progress_bar_tx).await;
+        worker::Worker::new(mounting_type.to_string(), refinement, concurrency)
+            .start(jobs_rx, &Arc::from(results_tx), &Arc::from(progress_bar_tx))
+            .await;
     }
 }
